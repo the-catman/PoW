@@ -11,28 +11,33 @@
  * Problem is always 16 bytes
  * Solution will always be 16 bytes
  */
-__global__ void solve_kernel(const char *problem, uint64_t max, uint32_t mask, char *solution, int *found) {
-    uint64_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= max || *found) return;
+__global__ void solve_kernel(const char *problem, uint32_t mask, char *solution, int *found) {
+    uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t stride = (uint64_t)blockDim.x * gridDim.x;
 
-    char arr[48];
+    uint8_t arr[48];
+    uint32_t hash[5];
+
     memcpy(arr, problem, 16);
     memset(arr + 16, '0', 16);
     memcpy(arr + 32, problem, 16);
 
-    uint64_t tmp = i;
-    int iter = 16;
-    while (tmp > 0 && iter > 0) {
-        arr[16 + --iter] = (tmp % 10) + '0';
-        tmp /= 10;
-    }
+    volatile int *found_volatile = found;
 
-    uint32_t hash[5];
-    sha1_hash(reinterpret_cast<uint8_t*>(arr), 48, hash);
+    for (uint64_t i = idx; i < MAX && !(*found_volatile); i += stride) {
+        uint64_t tmp = i;
+        int iter = 16;
+        while (tmp > 0) {
+            arr[16 + --iter] = (tmp % 10) + '0';
+            tmp /= 10;
+        }
 
-    if (!(hash[0] & mask)) {
-        if (atomicExch(found, 1) == 0) {  // 0 = false, 1 = true
-            memcpy(solution, arr + 16, 16);
+        sha1_hash(arr, 48, hash);
+        if (!(hash[0] & mask)) {
+            if (atomicExch(found, 1) == 0) {
+                memcpy(solution, arr + 16, 16);
+            }
+            return;
         }
     }
 }
@@ -54,6 +59,7 @@ int main(int argc, char *argv[]) {
         printf("Error: Difficulty must be between 0 and 32.\n");
         return 1;
     }
+
     uint32_t mask = difficulty >= 32 ? 0xFFFFFFFF : ((1U << difficulty) - 1) << (32 - difficulty);
 
     // Device memory
@@ -65,18 +71,23 @@ int main(int argc, char *argv[]) {
     cudaMalloc(&d_found, sizeof(int));
     cudaMemset(d_found, 0, sizeof(int));
 
+    int blocks = 256;
     int threadsPerBlock = 256;
-	/** Still trying to figure out what the ideal block size is. */
-    int blocks = 1 << (difficulty <= 8 ? 8 : difficulty - 7); // 2 ** max(difficulty - 7, 8)
-	// -7 is because threadsPerBlock = 2 ** 8.
 
-    solve_kernel<<<blocks, threadsPerBlock>>>(d_problem, MAX, mask, d_solution, d_found);
+    solve_kernel<<<blocks, threadsPerBlock>>>(d_problem, mask, d_solution, d_found);
+
     cudaDeviceSynchronize();
 
-    char solution[17] = {0};
-    cudaMemcpy(solution, d_solution, 16, cudaMemcpyDeviceToHost);
+    int found_host = 0;
+    cudaMemcpy(&found_host, d_found, sizeof(int), cudaMemcpyDeviceToHost);
 
-    printf("%s\n", solution);
+    if (found_host) {
+        char solution[17] = {0};
+        cudaMemcpy(solution, d_solution, 16, cudaMemcpyDeviceToHost);
+        printf("%s\n", solution);
+    } else {
+        printf("No solution found\n");
+    }
 
     cudaFree(d_problem);
     cudaFree(d_solution);

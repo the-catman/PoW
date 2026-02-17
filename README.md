@@ -53,4 +53,4 @@ Note that this is not a rigorous benchmark, and I simply used Measure-Comamnd in
 | -------------- | ---------------- | ---------- | ------------- |
 | CPU Single     | abc0123456789def |     20     |     0.037s    |
 | CPU Parallel   | abc0123456789def |     20     |     0.078s    |
-| GPU CUDA       | abc0123456789def |     20     |     0.110s    |
+| GPU CUDA       | abc0123456789def |     20     |     0.558s    |

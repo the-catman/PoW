@@ -98,6 +98,7 @@ int main(int argc, char *argv[]) {
         printf("Error: Difficulty must be between 0 and 32.\n");
         return 1;
     }
+
     uint32_t mask = difficulty >= 32 ? 0xFFFFFFFF : ((1U << difficulty) - 1) << (32 - difficulty);
 
     char solution[17] = {0};
